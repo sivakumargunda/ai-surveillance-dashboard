@@ -1,0 +1,16 @@
+.git
+.venv
+__pycache__
+*.pyc
+node_modules
+frontend/node_modules
+frontend/build
+artifacts/alerts
+artifacts/clips
+artifacts/logs
+artifacts/*.db
+artifacts/*.db-*
+*.mp4
+*.avi
+*.mov
+.env
