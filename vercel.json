@@ -3,16 +3,5 @@
   "devCommand": "uvicorn api:app --reload",
   "env": {
     "PYTHONUNBUFFERED": "1"
-  },
-  "functions": {
-    "api.py": {
-      "runtime": "python@3.11"
-    }
-  },
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "api.py"
-    }
-  ]
+  }
 }
