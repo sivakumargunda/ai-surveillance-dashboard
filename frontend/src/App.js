@@ -10,6 +10,7 @@ function App() {
   const [alerts, setAlerts] = useState([]);
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
+  const [backendStatus, setBackendStatus] = useState({ state: 'checking', lastSync: null, message: '' });
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [livePeople, setLivePeople] = useState(0);
   const [dateRange, setDateRange] = useState('24h');
@@ -28,6 +29,10 @@ function App() {
   const [draftPoints, setDraftPoints] = useState([]);
   const [zoneMessage, setZoneMessage] = useState('');
   const [frameSize, setFrameSize] = useState({ width: 640, height: 480 });
+  const [eventSearch, setEventSearch] = useState('');
+  const [eventTypeFilter, setEventTypeFilter] = useState('all');
+  const [eventStateFilter, setEventStateFilter] = useState('all');
+  const [eventCameraFilter, setEventCameraFilter] = useState('all');
   const zoneImageRef = useRef(null);
 
   const parseJsonValue = (value, defaultValue) => {
@@ -63,6 +68,30 @@ function App() {
     zone_intrusion: '#ef4444',
   }[activityType] || '#6b7280');
 
+  const getSeverity = (alert) => {
+    if (alert.state === 'active') return 'critical';
+    if (alert.state === 'start') return 'warning';
+    return 'resolved';
+  };
+
+  const getSeverityLabel = (alert) => ({
+    critical: 'Critical',
+    warning: 'Warning',
+    resolved: 'Resolved',
+  }[getSeverity(alert)]);
+
+  const markBackendOnline = () => {
+    setBackendStatus({ state: 'online', lastSync: new Date(), message: '' });
+  };
+
+  const markBackendOffline = (error) => {
+    setBackendStatus({
+      state: 'offline',
+      lastSync: backendStatus.lastSync,
+      message: getApiErrorMessage(error, 'Backend offline. Check the API server and try again.'),
+    });
+  };
+
   const fetchAlerts = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/alerts?limit=100`);
@@ -81,8 +110,10 @@ function App() {
     try {
       const response = await axios.get(`${API_BASE_URL}/alerts/stats`);
       setStats(response.data);
+      markBackendOnline();
     } catch (error) {
       console.error('Error fetching stats:', error);
+      markBackendOffline(error);
     }
     setLoading(false);
   };
@@ -330,11 +361,42 @@ function App() {
   const typeData = Object.entries(stats.by_type || {}).map(([type, count]) => ({ name: type, value: count }));
   const cameraChartData = activeCameras.map((camera) => ({ name: camera.cameraId, count: camera.count }));
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+  const eventTypes = Array.from(new Set(alerts.map((alert) => alert.activity_type).filter(Boolean))).sort();
+  const eventCameras = Array.from(new Set(alerts.map((alert) => alert.camera_id).filter(Boolean))).sort();
+  const filteredAlerts = alerts.filter((alert) => {
+    const query = eventSearch.trim().toLowerCase();
+    const matchesSearch = !query || [
+      alert.activity_type,
+      alert.state,
+      alert.camera_id,
+      alert.track_ids?.join(' '),
+      getSeverityLabel(alert),
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+    const matchesType = eventTypeFilter === 'all' || alert.activity_type === eventTypeFilter;
+    const matchesState = eventStateFilter === 'all' || alert.state === eventStateFilter;
+    const matchesCamera = eventCameraFilter === 'all' || alert.camera_id === eventCameraFilter;
+    return matchesSearch && matchesType && matchesState && matchesCamera;
+  });
+  const criticalEvents = activeEvents.filter((alert) => getSeverity(alert) === 'critical');
+  const warningEvents = activeEvents.filter((alert) => getSeverity(alert) === 'warning');
+  const offlineCameras = registeredCameras.filter((camera) => camera.status !== 'online');
+  const lastSyncText = backendStatus.lastSync ? backendStatus.lastSync.toLocaleTimeString() : 'Not synced';
   const pageTitle = currentPage === 'dashboard'
     ? 'Dashboard'
     : currentPage.split('-').map((word) => word[0].toUpperCase() + word.slice(1)).join(' ');
 
-  if (loading) return <div className="loading">Loading...</div>;
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-panel">
+          <div className="loading-mark">S</div>
+          <h1>Loading command center</h1>
+          <p>Checking API status, cameras, and recent events.</p>
+          <div className="loading-bar"><span /></div>
+        </div>
+      </div>
+    );
+  }
 
   const renderPageHeader = (title) => (
     <div className="page-title-row">
@@ -404,64 +466,154 @@ function App() {
     );
   };
 
+  const renderStatusNotice = () => {
+    if (backendStatus.state !== 'offline') return null;
+    return (
+      <div className="status-notice status-notice-error">
+        <div>
+          <strong>Backend offline</strong>
+          <span>{backendStatus.message}</span>
+        </div>
+        <button type="button" onClick={() => { fetchAlerts(); fetchStats(); fetchLiveStats(); fetchCameras(); }}>Retry</button>
+      </div>
+    );
+  };
+
+  const renderEventTable = (items, emptyText) => (
+    <div className="event-table-shell">
+      {items.length === 0 ? (
+        <div className="empty-state">
+          <strong>{emptyText}</strong>
+          <span>Try changing the filters or refreshing the event feed.</span>
+        </div>
+      ) : (
+        <table className="event-table">
+          <thead>
+            <tr>
+              <th>Severity</th>
+              <th>Event</th>
+              <th>Camera</th>
+              <th>People</th>
+              <th>Tracks</th>
+              <th>Time</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((alert) => (
+              <tr key={alert.id} onClick={() => setSelectedAlert(alert)}>
+                <td><span className={`severity-pill severity-${getSeverity(alert)}`}>{getSeverityLabel(alert)}</span></td>
+                <td>
+                  <div className="event-name-cell">
+                    <span className="activity-dot" style={{ backgroundColor: getActivityColor(alert.activity_type) }} />
+                    <span>{alert.activity_type.replace('_', ' ').toUpperCase()}</span>
+                  </div>
+                </td>
+                <td>{alert.camera_id}</td>
+                <td>{parseJsonValue(alert.extra_data, {}).count || 0}</td>
+                <td>{alert.track_ids?.join(', ') || 'none'}</td>
+                <td>{formatTimestamp(alert.timestamp)}</td>
+                <td><span className="state-badge">{getStateBadge(alert.state)}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+
   const renderDashboard = () => (
-    <div className="content">
-      <div className="active-events">
-        <h2>Active Events</h2>
-        <div className="active-events-row">
-          {activeEvents.slice(0, 4).map((alert) => (
-            <div
-              key={alert.id}
-              className="horizontal-card"
-              onClick={() => setSelectedAlert(alert)}
-              style={{ borderLeftColor: getActivityColor(alert.activity_type) }}
-            >
-              <div className="card-icon">{alert.activity_type === 'crowd' ? 'People' : 'Alert'}</div>
-              <div className="card-info">
-                <div className="activity-name">{alert.activity_type.toUpperCase()}</div>
-                <div className="state-badge">{getStateBadge(alert.state)}</div>
-                <div className="people-count">People: {parseJsonValue(alert.extra_data, {}).count || 0}</div>
-              </div>
-              <div className="card-arrow">View</div>
-            </div>
-          ))}
-          {activeEvents.length === 0 && <div className="no-active">System Normal<br />No active events</div>}
+    <div className="ops-overview">
+      {renderStatusNotice()}
+      <section className="ops-hero">
+        <div>
+          <div className="eyebrow">Operations overview</div>
+          <h2>{criticalEvents.length ? `${criticalEvents.length} active critical event${criticalEvents.length > 1 ? 's' : ''}` : 'All monitored zones normal'}</h2>
+          <p>Live camera health, alert triage, and detection trends for the current command cycle.</p>
         </div>
-      </div>
+        <div className={`system-health health-${backendStatus.state}`}>
+          <span className="status-dot" />
+          <div>
+            <strong>{backendStatus.state === 'online' ? 'API online' : backendStatus.state === 'offline' ? 'API offline' : 'Checking API'}</strong>
+            <span>Last sync: {lastSyncText}</span>
+          </div>
+        </div>
+      </section>
 
-      <div className="recent-events">
-        <h2>Recent Events</h2>
-        <div className="recent-list">
-          {recentEvents.map((alert) => (
-            <div key={alert.id} className="recent-item" onClick={() => setSelectedAlert(alert)}>
-              {alert.snapshot_path && (
-                <img
-                  src={`${API_BASE_URL}/snapshots/${getSnapshotFilename(alert.snapshot_path)}`}
-                  alt="Event"
-                  className="recent-thumb"
-                />
-              )}
-              <div className="recent-info">
-                <div className="activity-badge">{alert.activity_type.toUpperCase()}</div>
-                <div className="state-badge">{getStateBadge(alert.state)}</div>
-                <div className="recent-details">
-                  <div>Camera: {alert.camera_id}</div>
-                  <div>People: {parseJsonValue(alert.extra_data, {}).count || 0}</div>
-                  <div>{formatTimestamp(alert.timestamp)}</div>
+      <section className="ops-grid">
+        <button className="metric-tile metric-danger" onClick={() => setCurrentPage('active-events')}>
+          <span>Critical active</span>
+          <strong>{criticalEvents.length}</strong>
+          <small>{warningEvents.length} warnings queued</small>
+        </button>
+        <button className="metric-tile" onClick={() => setCurrentPage('active-cameras')}>
+          <span>Cameras online</span>
+          <strong>{Math.max(registeredCameras.length - offlineCameras.length, 0)}</strong>
+          <small>{offlineCameras.length} offline</small>
+        </button>
+        <button className="metric-tile" onClick={() => setCurrentPage('total-events')}>
+          <span>Events today</span>
+          <strong>{activeEvents.length + recentEvents.length}</strong>
+          <small>{stats.total || 0} total retained</small>
+        </button>
+        <div className="metric-tile">
+          <span>Live people</span>
+          <strong>{liveStats.people ?? livePeople}</strong>
+          <small>{liveStats.tracked ?? 0} tracked objects</small>
+        </div>
+      </section>
+
+      <section className="ops-main-grid">
+        <div className="active-events panel">
+          <div className="panel-header">
+            <h2>Priority Queue</h2>
+            <button type="button" className="link-button" onClick={() => setCurrentPage('events')}>Open all events</button>
+          </div>
+          <div className="active-events-row">
+            {activeEvents.slice(0, 4).map((alert) => (
+              <div
+                key={alert.id}
+                className="horizontal-card"
+                onClick={() => setSelectedAlert(alert)}
+                style={{ borderLeftColor: getActivityColor(alert.activity_type) }}
+              >
+                <div className={`card-icon severity-${getSeverity(alert)}`}>{getSeverityLabel(alert)}</div>
+                <div className="card-info">
+                  <div className="activity-name">{alert.activity_type.replace('_', ' ').toUpperCase()}</div>
+                  <div className="people-count">Camera {alert.camera_id} | People {parseJsonValue(alert.extra_data, {}).count || 0}</div>
                 </div>
+                <div className="card-arrow">Review</div>
               </div>
-              <div className="recent-arrow">View</div>
+            ))}
+            {activeEvents.length === 0 && <div className="no-active"><strong>System normal</strong><span>No active events require attention.</span></div>}
+          </div>
+        </div>
+
+        <div className="camera-health panel">
+          <div className="panel-header">
+            <h2>Camera Health</h2>
+            <button type="button" className="link-button" onClick={() => setCurrentPage('live-view')}>Live grid</button>
+          </div>
+          {registeredCameras.length === 0 ? (
+            <div className="empty-state"><strong>No cameras configured</strong><span>Add a camera to start monitoring.</span></div>
+          ) : registeredCameras.slice(0, 5).map((camera) => (
+            <div className="camera-health-row" key={camera.cameraId}>
+              <div>
+                <strong>{camera.cameraId}</strong>
+                <span>{camera.url || 'No source URL'}</span>
+              </div>
+              <span className={`camera-status-pill ${camera.status === 'online' ? 'online' : 'offline'}`}>{camera.status}</span>
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
-      <div className="sidebar-content">
+      <section className="ops-main-grid">
         <div className="chart-card">
           <h3>Events by Type</h3>
           <ResponsiveContainer width="100%" height={250}>
             <PieChart>
-              <Pie data={typeData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70}>
+              <Pie data={typeData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={78}>
                 {typeData.map((entry, index) => <Cell fill={COLORS[index % COLORS.length]} key={entry.name} />)}
               </Pie>
               <Tooltip />
@@ -475,11 +627,11 @@ function App() {
               <XAxis dataKey="time" />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="count" fill="#3b82f6" />
+              <Bar dataKey="count" fill="#2563eb" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      </section>
     </div>
   );
 
@@ -487,20 +639,40 @@ function App() {
     if (currentPage === 'live-view') {
       return (
         <div className="page-panel">
+          {renderStatusNotice()}
           {renderPageHeader('Live View')}
-          <div className="camera-selector">
+          <div className="camera-selector control-strip">
             <select value={selectedCamera} onChange={(e) => setSelectedCamera(e.target.value)}>
+              {activeCameras.length === 0 && <option value="">No cameras available</option>}
               {activeCameras.map((camera) => (
                 <option key={camera.cameraId} value={camera.cameraId}>{camera.cameraId}</option>
               ))}
             </select>
+            <button type="button" className="back-button" onClick={fetchCameras}>Refresh cameras</button>
+          </div>
+          <div className="camera-mosaic">
+            {registeredCameras.length === 0 && <div className="empty-state"><strong>No cameras configured</strong><span>Add a camera before opening live monitoring.</span></div>}
+            {registeredCameras.map((camera) => (
+              <button
+                type="button"
+                className={`mosaic-tile ${selectedCamera === camera.cameraId ? 'selected' : ''}`}
+                key={camera.cameraId}
+                onClick={() => setSelectedCamera(camera.cameraId)}
+              >
+                <img src={`${API_BASE_URL}/stream/${camera.cameraId}`} alt={`${camera.cameraId} stream`} />
+                <span className="mosaic-gradient" />
+                <span className={`camera-status-pill ${camera.status === 'online' ? 'online' : 'offline'}`}>{camera.status}</span>
+                <strong>{camera.cameraId}</strong>
+                <small>{cameraStats[camera.cameraId] || 0} alerts today</small>
+              </button>
+            ))}
           </div>
           <div className="live-view-grid">
             <div className="live-preview">
               <div className="preview-topbar">
                 <div>
                   <div className="preview-label">Camera {selectedCamera}</div>
-                  <div className="preview-subtitle">Live mobile feed</div>
+                  <div className="preview-subtitle">Primary live feed with detection overlay</div>
                 </div>
                 <span className="recording-pill">Live</span>
               </div>
@@ -510,13 +682,23 @@ function App() {
                   <span className="corner top-right" />
                   <span className="corner bottom-left" />
                   <span className="corner bottom-right" />
-                  <div className="camera-frame-text">Live Feed</div>
-                  <img src={`${API_BASE_URL}/stream/${selectedCamera}`} alt="Live Camera Feed" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  {!selectedCamera && <div className="camera-frame-text">Select a camera</div>}
+                  {selectedCamera && <img src={`${API_BASE_URL}/stream/${selectedCamera}`} alt="Live Camera Feed" />}
+                  <div className="camera-overlay top-overlay">
+                    <span>{selectedCamera || 'No camera'}</span>
+                    <span>{backendStatus.state === 'online' ? 'Signal locked' : 'Signal pending'}</span>
+                  </div>
+                  <div className="camera-overlay bottom-overlay">
+                    <span>People {liveStats.people ?? livePeople}</span>
+                    <span>FPS {Number(liveStats.fps || 0).toFixed(1)}</span>
+                    <span>Tracked {liveStats.tracked ?? 0}</span>
+                  </div>
                 </div>
               </div>
               <div className="preview-metrics">
                 <span><strong>{liveStats.people ?? livePeople}</strong>People</span>
                 <span><strong>{liveStats.tracked ?? 0}</strong>Tracked</span>
+                <span><strong>{Number(liveStats.fps || 0).toFixed(1)}</strong>FPS</span>
               </div>
             </div>
             <div className="live-side-panel">
@@ -531,12 +713,37 @@ function App() {
     if (currentPage === 'events') {
       return (
         <div className="page-panel">
+          {renderStatusNotice()}
           {renderPageHeader('Events')}
-          <div className="toolbar-row">
-            <button className="back-button" onClick={fetchAlerts}>Refresh events</button>
-            <button className="back-button" onClick={() => setCurrentPage('active-events')}>Show active only</button>
+          <div className="event-command-bar">
+            <div className="event-search">
+              <input
+                type="search"
+                placeholder="Search camera, event, state, or track"
+                value={eventSearch}
+                onChange={(event) => setEventSearch(event.target.value)}
+              />
+            </div>
+            <select value={eventTypeFilter} onChange={(event) => setEventTypeFilter(event.target.value)}>
+              <option value="all">All types</option>
+              {eventTypes.map((type) => <option value={type} key={type}>{type}</option>)}
+            </select>
+            <select value={eventStateFilter} onChange={(event) => setEventStateFilter(event.target.value)}>
+              <option value="all">All states</option>
+              <option value="start">Start</option>
+              <option value="active">Active</option>
+              <option value="end">End</option>
+            </select>
+            <select value={eventCameraFilter} onChange={(event) => setEventCameraFilter(event.target.value)}>
+              <option value="all">All cameras</option>
+              {eventCameras.map((camera) => <option value={camera} key={camera}>{camera}</option>)}
+            </select>
+            <button className="back-button" onClick={fetchAlerts}>Refresh</button>
           </div>
-          {renderEventList(alerts, 'No events recorded yet')}
+          <div className="event-results-summary">
+            Showing {filteredAlerts.length} of {alerts.length} events
+          </div>
+          {renderEventTable(filteredAlerts, 'No matching events')}
         </div>
       );
     }
@@ -826,6 +1033,10 @@ function App() {
             <div className="navbar-subtitle">Real-time surveillance operations</div>
           </div>
           <div className="navbar-right">
+            <div className={`connection-pill ${backendStatus.state}`}>
+              <span className="status-dot" />
+              {backendStatus.state === 'online' ? 'API online' : backendStatus.state === 'offline' ? 'API offline' : 'Checking'}
+            </div>
             <select value={dateRange} onChange={(e) => setDateRange(e.target.value)}>
               <option>24h</option>
               <option>7d</option>
