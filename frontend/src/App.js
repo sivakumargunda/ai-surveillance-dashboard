@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import AIChatWidget from './components/AIChatWidget';
 import Sidebar from './components/Sidebar';
 import './App.css';
 
@@ -1106,6 +1107,7 @@ function App() {
           </div>
         </div>
       )}
+      <AIChatWidget />
     </div>
   );
 }
