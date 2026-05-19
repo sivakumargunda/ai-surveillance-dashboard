@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#05060a" />
+    <title>Sentinel AI — Cinematic Surveillance Demo</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app" class="app">
+      <canvas id="fx" class="fx-canvas" aria-hidden="true"></canvas>
+
+      <header class="hud hud--top" aria-label="Sentinel HUD">
+        <div class="brand">
+          <img
+            class="brand__logo"
+            src="./assets/logo.png"
+            alt="Sentinel AI"
+            onerror="this.style.display='none'"
+          />
+          <div class="brand__name">
+            <span class="brand__nameTop">SENTINEL</span>
+            <span class="brand__nameBottom">AI</span>
+          </div>
+        </div>
+
+        <div class="hud__meta">
+          <div class="metaPill">
+            <span class="metaPill__dot"></span>
+            <span>LIVE DEMO</span>
+          </div>
+          <div class="metaPill metaPill--ghost" title="Demo runtime">
+            <span id="timecode">00:00 / 00:00</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="stage" id="stage" aria-label="Cinematic stage">
+        <div class="sceneFrame">
+          <div class="sceneBg" id="sceneBg" aria-hidden="true"></div>
+
+          <div class="letterbox" aria-hidden="true">
+            <div class="letterbox__top"></div>
+            <div class="letterbox__bottom"></div>
+          </div>
+
+          <div class="panZoom" id="panZoom" aria-hidden="true"></div>
+
+          <div class="hud hud--left" id="leftHud" aria-hidden="true"></div>
+          <div class="hud hud--right" id="rightHud" aria-hidden="true"></div>
+
+          <div class="glassPanel glassPanel--center" id="centerPanel" aria-hidden="true">
+            <div class="glassPanel__inner">
+              <div class="kicker" id="centerKicker">SENTINEL AI</div>
+              <h1 class="headline" id="centerHeadline">CINEMATIC MONITORING</h1>
+              <p class="subhead" id="centerSubhead">Ensemble intelligence for enterprise security.</p>
+            </div>
+          </div>
+
+          <div class="cursorGlow" id="cursorGlow" aria-hidden="true"></div>
+
+          <div class="subtitle" id="subtitles" aria-live="polite"></div>
+
+          <div class="controls" aria-label="Demo controls">
+            <button class="btn btn--ghost" id="btnReplay" type="button">Replay</button>
+            <button class="btn btn--ghost" id="btnVoice" type="button" aria-pressed="false">
+              Voice: Off
+            </button>
+            <button class="btn btn--ghost" id="btnSubs" type="button" aria-pressed="true">
+              Subtitles: On
+            </button>
+          </div>
+
+          <div class="toast" id="toast" role="status" aria-live="polite"></div>
+        </div>
+      </main>
+
+      <footer class="hud hud--bottom" aria-label="Credits">
+        <div class="foot" id="footNote">
+          Built for an Apple-style enterprise product trailer feel — glass UI, neon bloom, and cinematic motion.
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="./script.js"></script>
+  </body>
+</html>
+
